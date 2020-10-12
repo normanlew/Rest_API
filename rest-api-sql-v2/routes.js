@@ -4,9 +4,22 @@ const express = require('express');
 const bcryptjs = require('bcryptjs');
 const auth = require('basic-auth');
 
+/* Handler function to wrap each route. */
+function asyncHandler(cb){
+    return async(req, res, next) => {
+      try {
+        await cb(req, res, next)
+      } catch(error){
+          console.log("entered catch block of asynchandler, error message: " + error.message + ", error status: " + error.status);
+        next(error);
+      }
+    }
+}
+
+const {check, validationResult} = require('express-validator');
+
 
 const { User, Course } = require('./models');
-// const { User } = db;
 
 // const User  = require('./models');
 // console.log(User);
@@ -86,9 +99,31 @@ router.get('/users', authenticateUser, async (req, res) => {
 });
 
 // Creates a new user
-router.post('/users', async (req, res) => {
-    // console.log(req);
-    // Get the user from the request body
+router.post('/users', [
+    check('firstName')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "firstName"'),
+    check('lastName')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "lastName"'),
+    check('emailAddress')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "emailAddress"'),
+    check('password')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "password"'),
+], async (req, res) => {
+    // Attempt to get the validation result from the Request object
+    const errors = validationResult(req);
+
+    // If there are validation errors
+    if (!errors.isEmpty()) {
+        // Get a list of error messages
+        const errorMessages = errors.array().map(error => error.msg);
+
+        // Return the validation errors to the client
+        return res.status(400).json( { errors: errorMessages});
+    }
     const user = req.body;
     // console.log(user);
 
@@ -135,42 +170,92 @@ router.get('/courses/:id', async(req, res) => {
 });
 
 // Creates a course, sets the Location header to the URI for the course, and returns no content
-router.post('/courses', async (req, res) => {
-    // console.log(req);
-    // Get the course from the request body
-    const course = req.body;
-    // console.log(course);
+router.post('/courses', [
+    check('title')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "title"'),
+    check('description')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "description"'),
+], asyncHandler (async (req, res) => {
+    try {
+        // Attempt to get the validation result from the Request object
+        const errors = validationResult(req);
 
+        // If there are validation errors
+        if (!errors.isEmpty()) {
+            // Get a list of error messages
+            const errorMessages = errors.array().map(error => error.msg);
 
-    // Add the course to the database
-    const newCourse = await Course.create({
-        title: course.title,
-        description: course.description,
-        estimatedTime: course.estimatedTime,
-        materialsNeeded: course.materialsNeeded,
-        userId: course.userId,
-    });
+            // Return the validation errors to the client
+            return res.status(400).json( { errors: errorMessages});
+        }
 
-    console.log(newCourse);
+        // Get the course from the request body
+        const course = req.body;
 
-    // Set the status to 201 and end the response
-    res.status(201).location("/" + newCourse.id).end();
-});
+        // Add the course to the database
+        const newCourse = await Course.create({
+            title: course.title,
+            description: course.description,
+            estimatedTime: course.estimatedTime,
+            materialsNeeded: course.materialsNeeded,
+            userId: course.userId,
+        });
+
+        // Set the status to 201 and end the response
+        res.status(201).location("/" + newCourse.id).end();
+    } catch (error) {
+        // if (error.name === 'SequelizeForeignKeyConstraintError') {
+        if (error.name.includes('Sequelize')) {
+        //   const errors = error.errors.map(err => err.message);
+            console.log("entered catch block when posting new course");
+           // Return the validation errors to the client
+            // return res.status(400).json( { errors: error.message});
+            error.status = 400;
+            console.error(error.message);
+            next(error);
+        } else {
+          throw error;
+        }
+    }
+}));
 
 // Updates a course and returns no content
-router.put('/courses/:id', async (req, res) => { 
+router.put('/courses/:id', [
+    check('title')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "title"'),
+    check('description')
+        .exists({ checkNull: true, checkFalsy: true})
+        .withMessage('Please provide a value for "description"'),
+], async (req, res) => { 
+    // Attempt to get the validation result from the Request object
+    const errors = validationResult(req);
+
+    // If there are validation errors
+    if (!errors.isEmpty()) {
+        // Get a list of error messages
+        const errorMessages = errors.array().map(error => error.msg);
+
+        // Return the validation errors to the client
+        return res.status(400).json( { errors: errorMessages});
+    }
+
     const course = await Course.findOne({
         where: { id: req.params.id},
       });
       if (course) {
         course.title = req.body.title;
         course.description = req.body.description;
+        course.estimatedTime = req.body.estimatedTime;
+        course.materialsNeeded = req.body.materialsNeeded;
 
         await course.save();
         res.status(204).end();
     }
     else {
-        res.status(404).json({message: "Couese not found."});
+        res.status(404).json({message: "Course not found."});
     }
 });
 
