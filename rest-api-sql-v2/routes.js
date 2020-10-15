@@ -10,7 +10,6 @@ function asyncHandler(cb){
       try {
         await cb(req, res, next)
       } catch(error){
-          console.log("entered catch block of asynchandler, error message: " + error.message + ", error status: " + error.status);
         next(error);
       }
     }
@@ -18,15 +17,11 @@ function asyncHandler(cb){
 
 const {check, validationResult} = require('express-validator');
 
-
 const { User, Course } = require('./models');
-
-// const User  = require('./models');
-// console.log(User);
 
 const router = express.Router();
 
-// Code and comments for this Authentication middleware was taken from a tutorial 
+// Code and comments for this Authentication middleware were taken from a tutorial 
 // at teamtreehouse.com
 const authenticateUser = async (req, res, next) => {
     let message = null;
@@ -86,9 +81,8 @@ const authenticateUser = async (req, res, next) => {
 };
 
 // Returns the currently authenticated user
-router.get('/users', authenticateUser, async (req, res) => {
+router.get('/users', authenticateUser, asyncHandler(async (req, res) => {
     const user = req.currentUser;
-    // console.log(user);
   
     res.status(200).json({
       firstName: user.firstName,
@@ -96,7 +90,7 @@ router.get('/users', authenticateUser, async (req, res) => {
       username: user.emailAddress,
       userId: user.id
     });
-});
+}));
 
 // Creates a new user
 router.post('/users', [
@@ -112,7 +106,7 @@ router.post('/users', [
     check('password')
         .exists({ checkNull: true, checkFalsy: true})
         .withMessage('Please provide a value for "password"'),
-], async (req, res) => {
+], asyncHandler(async (req, res) => {
     // Attempt to get the validation result from the Request object
     const errors = validationResult(req);
 
@@ -125,7 +119,6 @@ router.post('/users', [
         return res.status(400).json( { errors: errorMessages});
     }
     const user = req.body;
-    // console.log(user);
 
     user.password = bcryptjs.hashSync(user.password);
 
@@ -138,8 +131,8 @@ router.post('/users', [
     });
 
     // Set the status to 201 and end the response
-    res.status(201).end();
-});
+    res.status(201).location("/").end();
+}));
 
 // Returns a list of courses (including the user that owns each course)
 router.get('/courses', async(req, res) => {
@@ -155,8 +148,6 @@ router.get('/courses', async(req, res) => {
 
 // Returns the course (including the user that owns the course) for the provided course ID
 router.get('/courses/:id', async(req, res) => {
-    // const project = await Project.findOne({ where: { title: 'My Title' } });
-    // console.log(req.params.id);
     const course = await Course.findOne({
         where: { id: req.params.id},
 
@@ -170,15 +161,17 @@ router.get('/courses/:id', async(req, res) => {
 });
 
 // Creates a course, sets the Location header to the URI for the course, and returns no content
-router.post('/courses', [
+router.post('/courses', authenticateUser, [
     check('title')
         .exists({ checkNull: true, checkFalsy: true})
         .withMessage('Please provide a value for "title"'),
     check('description')
         .exists({ checkNull: true, checkFalsy: true})
         .withMessage('Please provide a value for "description"'),
-], asyncHandler (async (req, res) => {
+], asyncHandler (async (req, res, next) => {
     try {
+        const user = req.currentUser;
+
         // Attempt to get the validation result from the Request object
         const errors = validationResult(req);
 
@@ -200,18 +193,14 @@ router.post('/courses', [
             description: course.description,
             estimatedTime: course.estimatedTime,
             materialsNeeded: course.materialsNeeded,
-            userId: course.userId,
+            userId: user.id,
         });
 
         // Set the status to 201 and end the response
-        res.status(201).location("/" + newCourse.id).end();
+        res.status(201).location("/courses/" + newCourse.id).end();
     } catch (error) {
-        // if (error.name === 'SequelizeForeignKeyConstraintError') {
         if (error.name.includes('Sequelize')) {
-        //   const errors = error.errors.map(err => err.message);
-            console.log("entered catch block when posting new course");
            // Return the validation errors to the client
-            // return res.status(400).json( { errors: error.message});
             error.status = 400;
             console.error(error.message);
             next(error);
@@ -222,14 +211,17 @@ router.post('/courses', [
 }));
 
 // Updates a course and returns no content
-router.put('/courses/:id', [
+router.put('/courses/:id', authenticateUser, [
     check('title')
         .exists({ checkNull: true, checkFalsy: true})
         .withMessage('Please provide a value for "title"'),
     check('description')
         .exists({ checkNull: true, checkFalsy: true})
         .withMessage('Please provide a value for "description"'),
-], async (req, res) => { 
+], async (req, res, next) => { 
+
+    const user = req.currentUser;
+
     // Attempt to get the validation result from the Request object
     const errors = validationResult(req);
 
@@ -244,8 +236,11 @@ router.put('/courses/:id', [
 
     const course = await Course.findOne({
         where: { id: req.params.id},
-      });
-      if (course) {
+    });
+
+    // Update the course
+    if (course) {
+        if (course.userId === user.id) {
         course.title = req.body.title;
         course.description = req.body.description;
         course.estimatedTime = req.body.estimatedTime;
@@ -253,24 +248,39 @@ router.put('/courses/:id', [
 
         await course.save();
         res.status(204).end();
+        }
+        else {
+            const err = new Error('Cannot update a course you did not create');
+            err.status = 400;
+            next(err);
+        }
+
     }
     else {
         res.status(404).json({message: "Course not found."});
     }
+ 
 });
 
 // Deletes a course and returns no content
-router.delete('/courses/:id', async(req, res) => {
+router.delete('/courses/:id', authenticateUser, async(req, res, next) => {
+    const user = req.currentUser;
     try {
         const course = await Course.findOne({where: { id: req.params.id}});
         if (course) {
-            await course.destroy();
-            res.status(204).end();
+            if (course.userId === user.id) {
+                await course.destroy();
+                res.status(204).end();
+            }
+            else {
+                const err = new Error('Cannot delete a course you did not create');
+                err.status = 400;
+                next(err);          
+            }
+
         } else {
             res.status(404).json({message: "Course not found."});
         }
- 
-
     } catch(err) {
         res.status(404).json({message: err.message});
     }

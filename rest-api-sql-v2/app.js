@@ -14,14 +14,12 @@ const app = express();
 // Setup request body JSON parsing.
 app.use(express.json());
 
-// setup morgan which gives us http request logging
+// http request logging
 app.use(morgan('dev'));
 
 const { sequelize } = require('./models');
-// const { db } = require('./models');
-// const { sequelize } = db;
 
-// TODO setup your api routes here
+// api routes 
 (async () => {
   console.log('Testing the connection to the database...');
   try {
@@ -39,6 +37,7 @@ app.get('/', (req, res) => {
   });
 });
 
+// Add routes
 app.use('/api', routes);
 
 // send 404 if no other route matched
@@ -50,9 +49,7 @@ app.use((req, res) => {
 
 // setup a global error handler
 app.use((err, req, res, next) => {
-  console.log("entered global error handler");
   if (enableGlobalErrorLogging) {
-    console.log("global error logging enabled");
     console.error(`Global error handler: ${JSON.stringify(err.stack)}`);
   }
 
